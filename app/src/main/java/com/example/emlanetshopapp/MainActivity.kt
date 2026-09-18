@@ -6,15 +6,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.emlanetshopapp.ui.dashboard.DashboardScreen
 import com.example.emlanetshopapp.ui.dashboard.ShopAppState
 import com.example.emlanetshopapp.ui.dashboard.ShopDestination
 import com.example.emlanetshopapp.ui.dashboard.ShopDestinationScreen
+import com.example.emlanetshopapp.ui.dashboard.ShopViewModel
 import com.example.emlanetshopapp.ui.theme.EMLANETSHOPAPPTheme
 
 class MainActivity : ComponentActivity() {
@@ -23,21 +24,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             EMLANETSHOPAPPTheme(darkTheme = true, dynamicColor = false) {
+                val viewModel: ShopViewModel = viewModel()
+                val networkState by viewModel.uiState.collectAsStateWithLifecycle()
                 val state = remember { ShopAppState() }
-                var refreshKey by remember { mutableStateOf(0) }
-                // State holder is intentionally UI-framework independent; this observable key
-                // causes Compose to render after an event mutates the holder.
-                fun updateState(block: () -> Unit) { block(); refreshKey++ }
-                key(refreshKey) {
+                LaunchedEffect(networkState.orders) {
+                    networkState.orders?.let(state::replaceOrders)
+                }
+                run {
                     when (state.destination) {
                         ShopDestination.HOME -> DashboardScreen(
                             state = state,
-                            onStateChanged = { updateState(it) },
+                            onStateChanged = { it() },
                             modifier = Modifier.fillMaxSize()
                         )
                         else -> ShopDestinationScreen(
                             state = state,
-                            onStateChanged = { updateState(it) },
+                            onStateChanged = { it() },
                             modifier = Modifier.fillMaxSize()
                         )
                     }

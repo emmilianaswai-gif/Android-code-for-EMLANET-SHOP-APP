@@ -1,5 +1,9 @@
 package com.example.emlanetshopapp.ui.dashboard
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 /** Destinations exposed by the shop's primary navigation. */
 enum class ShopDestination(val label: String) {
     HOME("Home"), ORDERS("Orders"), SAVED("Saved"), PROFILE("Profile"), NOTIFICATIONS("Notifications")
@@ -10,16 +14,17 @@ enum class ShopDestination(val label: String) {
  * deterministic now and gives a single integration point for a future repository/API.
  */
 class ShopAppState(initialOrders: List<OrderUiModel> = sampleOrders()) {
-    var destination: ShopDestination = ShopDestination.HOME
+    var destination by mutableStateOf(ShopDestination.HOME)
         private set
-    var searchQuery: String = ""
+    var searchQuery by mutableStateOf("")
         private set
-    var savedOrderIds: Set<String> = emptySet()
+    var savedOrderIds by mutableStateOf(emptySet<String>())
         private set
-    var notificationsRead: Boolean = false
+    var notificationsRead by mutableStateOf(false)
         private set
 
-    val orders: List<OrderUiModel> = initialOrders
+    var orders by mutableStateOf(initialOrders)
+        private set
     val visibleOrders: List<OrderUiModel>
         get() = orders.filter { order ->
             searchQuery.isBlank() || listOf(order.id, order.title, order.subtitle, order.status)
@@ -36,4 +41,8 @@ class ShopAppState(initialOrders: List<OrderUiModel> = sampleOrders()) {
         savedOrderIds = if (orderId in savedOrderIds) savedOrderIds - orderId else savedOrderIds + orderId
     }
     fun markNotificationsRead() { notificationsRead = true }
+    fun replaceOrders(value: List<OrderUiModel>) {
+        orders = value
+        savedOrderIds = savedOrderIds.intersect(value.map { it.id }.toSet())
+    }
 }
