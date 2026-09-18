@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalOffer
@@ -173,7 +174,7 @@ private fun sampleQuickActions(): List<QuickActionUiModel> = listOf(
     QuickActionUiModel("Account", Icons.Filled.Person)
 )
 
-private fun sampleOrders(): List<OrderUiModel> = listOf(
+fun sampleOrders(): List<OrderUiModel> = listOf(
     OrderUiModel(
         id = "#8421",
         title = "Wireless Headphones",
@@ -210,15 +211,14 @@ private fun sampleOrders(): List<OrderUiModel> = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
+    state: ShopAppState,
+    onStateChanged: ((() -> Unit) -> Unit),
     userName: String = "Emma Lane",
     userSubtitle: String = "Premium member",
     modifier: Modifier = Modifier
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableIntStateOf(0) }
     val metrics = remember { sampleMetrics() }
     val quickActions = remember { sampleQuickActions() }
-    val orders = remember { sampleOrders() }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -236,24 +236,24 @@ fun DashboardScreen(
                 WelcomeHeader(
                     userName = userName,
                     userSubtitle = userSubtitle,
-                    unreadCount = 3,
-                    onNotificationClick = {}
+                    unreadCount = state.unreadNotifications,
+                    onNotificationClick = { onStateChanged { state.markNotificationsRead(); state.navigateTo(ShopDestination.NOTIFICATIONS) } }
                 )
 
                 DashboardSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onFilterClick = {}
+                    query = state.searchQuery,
+                    onQueryChange = { query -> onStateChanged { state.updateSearch(query) } },
+                    onFilterClick = { onStateChanged { state.updateSearch("") } }
                 )
 
                 PromoBannerCard(
-                    onShopNowClick = {}
+                    onShopNowClick = { onStateChanged { state.navigateTo(ShopDestination.ORDERS) } }
                 )
 
                 SectionHeader(
                     title = "Overview",
                     actionText = "See all",
-                    onActionClick = {}
+                    onActionClick = { onStateChanged { state.navigateTo(ShopDestination.ORDERS) } }
                 )
 
                 MetricsGrid(metrics = metrics)
@@ -264,20 +264,25 @@ fun DashboardScreen(
                     onActionClick = null
                 )
 
-                QuickActionsRow(actions = quickActions)
+                QuickActionsRow(actions = quickActions, onActionClick = { destination -> onStateChanged { state.navigateTo(destination) } })
 
                 SectionHeader(
                     title = "Recent orders",
                     actionText = "View all",
-                    onActionClick = {}
+                    onActionClick = { onStateChanged { state.navigateTo(ShopDestination.ORDERS) } }
                 )
 
-                RecentOrdersList(orders = orders)
+                RecentOrdersList(
+                    orders = state.visibleOrders,
+                    emptyMessage = if (state.searchQuery.isBlank()) "No recent orders" else "No orders match \"${state.searchQuery}\"",
+                    onOrderClick = { id -> onStateChanged { state.toggleSaved(id) } },
+                    savedOrderIds = state.savedOrderIds
+                )
             }
 
             DashboardBottomBar(
-                selectedIndex = selectedTab,
-                onSelected = { selectedTab = it }
+                selectedDestination = state.destination,
+                onSelected = { destination -> onStateChanged { state.navigateTo(destination) } }
             )
         }
     }
@@ -704,6 +709,7 @@ private fun DeltaPill(
 @Composable
 private fun QuickActionsRow(
     actions: List<QuickActionUiModel>,
+    onActionClick: (ShopDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyRow(
@@ -712,12 +718,13 @@ private fun QuickActionsRow(
         contentPadding = PaddingValues(vertical = 2.dp)
     ) {
         items(actions) { action ->
-            QuickActionItem(action = action)
+            QuickActionItem(action = action, onClick = { onActionClick(action.label.toDestination()) })
         }
         item {
             QuickActionItem(
                 action = QuickActionUiModel("Top rated", Icons.Filled.Star),
-                highlight = true
+                highlight = true,
+                onClick = { onActionClick(ShopDestination.ORDERS) }
             )
         }
     }
@@ -727,6 +734,7 @@ private fun QuickActionsRow(
 private fun QuickActionItem(
     action: QuickActionUiModel,
     highlight: Boolean = false,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -735,8 +743,9 @@ private fun QuickActionItem(
     ) {
         Box(
             modifier = Modifier
-                .size(60.dp)
-                .clip(SmallCardCorner)
+            .size(60.dp)
+            .clip(SmallCardCorner)
+            .clickable(onClick = onClick)
                 .then(
                     if (highlight) Modifier.background(AccentGradient)
                     else Modifier.background(DashboardSurface)
@@ -770,14 +779,20 @@ private fun QuickActionItem(
 @Composable
 private fun RecentOrdersList(
     orders: List<OrderUiModel>,
+    emptyMessage: String,
+    onOrderClick: (String) -> Unit,
+    savedOrderIds: Set<String>,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (orders.isEmpty()) {
+            Text(text = emptyMessage, color = DashboardMuted)
+        }
         orders.forEach { order ->
-            OrderCard(order = order)
+            OrderCard(order = order, isSaved = order.id in savedOrderIds, onClick = { onOrderClick(order.id) })
         }
     }
 }
@@ -785,10 +800,13 @@ private fun RecentOrdersList(
 @Composable
 private fun OrderCard(
     order: OrderUiModel,
+    isSaved: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
+        onClick = onClick,
         shape = SmallCardCorner,
         colors = CardDefaults.cardColors(containerColor = DashboardSurface),
         border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
@@ -836,7 +854,7 @@ private fun OrderCard(
             Spacer(modifier = Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = order.amount,
+                    text = if (isSaved) "Saved" else order.amount,
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = DashboardOnSurface
@@ -866,12 +884,12 @@ private fun OrderCard(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun DashboardBottomBar(
-    selectedIndex: Int,
-    onSelected: (Int) -> Unit,
+fun DashboardBottomBar(
+    selectedDestination: ShopDestination,
+    onSelected: (ShopDestination) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val items = listOf("Home", "Orders", "Saved", "Profile")
+    val items = listOf(ShopDestination.HOME, ShopDestination.ORDERS, ShopDestination.SAVED, ShopDestination.PROFILE)
     val icons = listOf(
         Icons.Filled.Home,
         Icons.Filled.ShoppingCart,
@@ -884,18 +902,18 @@ private fun DashboardBottomBar(
         containerColor = DashboardSurface,
         tonalElevation = 0.dp
     ) {
-        items.forEachIndexed { index, label ->
+        items.forEachIndexed { index, destination ->
             NavigationBarItem(
-                selected = selectedIndex == index,
-                onClick = { onSelected(index) },
+                selected = selectedDestination == destination,
+                onClick = { onSelected(destination) },
                 icon = {
-                    Icon(imageVector = icons[index], contentDescription = label)
+                    Icon(imageVector = icons[index], contentDescription = destination.label)
                 },
                 label = {
                     Text(
-                        text = label,
+                        text = destination.label,
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = if (selectedIndex == index) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = if (selectedDestination == destination) FontWeight.Bold else FontWeight.Medium
                         )
                     )
                 },
@@ -911,6 +929,55 @@ private fun DashboardBottomBar(
     }
 }
 
+private fun String.toDestination(): ShopDestination = when (this) {
+    "Home" -> ShopDestination.HOME
+    "Orders", "Top rated" -> ShopDestination.ORDERS
+    "Saved" -> ShopDestination.SAVED
+    else -> ShopDestination.PROFILE
+}
+
+@Composable
+fun ShopDestinationScreen(
+    state: ShopAppState,
+    onStateChanged: ((() -> Unit) -> Unit),
+    modifier: Modifier = Modifier
+) {
+    val title = state.destination.label
+    val content = when (state.destination) {
+        ShopDestination.ORDERS -> state.orders
+        ShopDestination.SAVED -> state.savedOrders
+        else -> emptyList()
+    }
+    Surface(modifier = modifier, color = DashboardBackground) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenPadding, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { onStateChanged { state.navigateTo(ShopDestination.HOME) } }) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = DashboardOnSurface)
+                }
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = DashboardOnBackground, fontWeight = FontWeight.Bold)
+            }
+            if (state.destination == ShopDestination.NOTIFICATIONS) {
+                Text("You're all caught up.", modifier = Modifier.padding(ScreenPadding), color = DashboardMuted)
+            } else if (state.destination == ShopDestination.PROFILE) {
+                Text("Emma Lane\nPremium member", modifier = Modifier.padding(ScreenPadding), color = DashboardOnSurface)
+            } else {
+                RecentOrdersList(
+                    orders = content,
+                    emptyMessage = if (state.destination == ShopDestination.SAVED) "Save an order from Home to see it here." else "No orders available.",
+                    onOrderClick = { id -> onStateChanged { state.toggleSaved(id) } },
+                    savedOrderIds = state.savedOrderIds,
+                    modifier = Modifier.padding(horizontal = ScreenPadding)
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            DashboardBottomBar(selectedDestination = state.destination, onSelected = { destination -> onStateChanged { state.navigateTo(destination) } })
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Preview
 // ---------------------------------------------------------------------------
@@ -919,7 +986,7 @@ private fun DashboardBottomBar(
 @Composable
 private fun DashboardScreenPreview() {
     EMLANETSHOPAPPTheme(darkTheme = true, dynamicColor = false) {
-        DashboardScreen()
+        DashboardScreen(state = ShopAppState(), onStateChanged = {})
     }
 }
 
